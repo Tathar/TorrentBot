@@ -12,11 +12,13 @@ pyppeteer = "*"
 configobj = "*"
 typing = "*"
 bs4 = "*"
+transmission-rpc = "*"
 
 [dev-packages]
 flake8 = "*"
 mypy = "*"
 yapf = "*"
+pylint = "*"
 
 [requires]
-python_version = "3.8"
+python_version = "3.7"
