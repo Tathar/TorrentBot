@@ -1,0 +1,7 @@
+site = nya
+search_name = one, piece, vostfr
+filters = None
+episode = 930
+index_episode = E, _
+separator = " "
+path = None

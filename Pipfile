@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+asyncio = "*"
+pathlib = "*"
+aiohttp = "*"
+docopt = "*"
+pyppeteer = "*"
+configobj = "*"
+typing = "*"
+bs4 = "*"
+
+[dev-packages]
+flake8 = "*"
+mypy = "*"
+yapf = "*"
+
+[requires]
+python_version = "3.8"
