@@ -13,6 +13,7 @@ configobj = "*"
 typing = "*"
 bs4 = "*"
 transmission-rpc = "*"
+lxml = "*"
 
 [dev-packages]
 flake8 = "*"
