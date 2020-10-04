@@ -60,7 +60,8 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                     if await serie.download_torrent(aio_session):
                         print("download torrent ok")
                         torrent_id = torrent_client.add_torrent(
-                            serie.torrent_file, True)
+                            serie.torrent_file, True, str(serie.path))
+
                         # await asyncio.sleep(10)
                         torrent = torrent_client.get_torrent_status(torrent_id)
                         if torrent.size <= torrent.free_space - 100000000:
@@ -88,7 +89,7 @@ def create_task(global_conf, sites, browser_context, aio_session,
                     serie_config["site"].append(site.site)
 
         root_config = Path(global_conf["root_config"]).parts
-        file_path = Path(serie_config["path"]).parent.parts
+        file_path = Path(serie_config["path"]).parts
 
         # recherche de la racince commune entre root_config et file_path
         num_part = 0
