@@ -70,6 +70,8 @@ class Series:
         self._count = 0
         # self.site = site
         if isinstance(site, list):
+            if len(site) == 0:
+                raise ValueError("Need a site")
             self.site = site
         elif isinstance(site, dict):
             self.site = list()
@@ -206,7 +208,7 @@ class Series:
 
     async def login(self, page):
         """ return True if OK, False is not OK """
-
+        print(self.site)
         print("in login goto " + self.site[0]["url"])
         try:
             await page.goto(self.site[0]["url"], {"timeout": 30000})
