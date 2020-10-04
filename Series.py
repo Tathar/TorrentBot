@@ -17,27 +17,27 @@ from ActionTag import ActionTag
 
 # search if title is in search
 def as_one_ellement(search: List[str], title: str) -> bool:
-    print("search " + str(search) + " in ", end="")
+    print("search or " + str(search) + " in ", end="")
     if len(title) > 0:
         print(title, end="")
         for regex in search:
             p = re.compile(regex, re.IGNORECASE)
             result = p.search(title)
             if result:
-                print(" Bads")
+                print(" OK")
                 return True
     else:
         print('"" No Title')
         return False
 
-    print(" Ok")
+    print(" Bad")
 
     return False
 
 
 # search if all elements of search is in title
 def as_all_ellements(search: List[str], title: str) -> bool:
-    print("search " + str(search) + " in ", end="")
+    print("search and " + str(search) + " in ", end="")
     if len(title) > 0:
         print(title, end="")
         for regex in search:

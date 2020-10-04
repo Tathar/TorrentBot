@@ -65,13 +65,22 @@ class TransmissionRpcClient(TorrentClient):
     def disconnect(self):
         pass
 
-    def add_torrent(self, file: bytes, paused: bool) -> str:
+    def add_torrent(self, file: bytes, paused: bool, path: str = None) -> str:
 
         if self.session is None:
             raise ConnectionError()
 
         send = BytesIO(file)
-        torrent = self.session.add_torrent(torrent=send, paused=paused)
+
+        args = {
+            "torrent": send,
+            "paused": paused,
+        }
+
+        if path is not None:
+            args["download_dir"] = path
+
+        torrent = self.session.add_torrent(**args)
         return torrent.id
 
     def del_torrent(self, torrent_id: str):

@@ -60,7 +60,7 @@ class TorrentClient:
         raise NotImplementedError
 
     @abstractmethod
-    def add_torrent(self, file: bytes, paused: bool) -> str:
+    def add_torrent(self, file: bytes, paused: bool, path: str = None) -> str:
         raise NotImplementedError
 
     @abstractmethod
