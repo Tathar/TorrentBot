@@ -101,7 +101,8 @@ def create_task(global_conf, sites, browser_context, aio_session,
                 break
 
         serie_config["path"] = str(
-            Path(global_conf["root_download"]).joinpath(*file_path[num_part:]))
+            Path(global_conf["root_download"]).joinpath(*file_path[num_part -
+                                                                   1:]))
 
         # series.append(Series(**serie_config))
         yield task(serie_config, browser_context, aio_session, torrent_client)
