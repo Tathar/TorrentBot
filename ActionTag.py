@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 
 # from pyppeteer.page import Page as pypage
+
+import logging
 from pyppeteer import errors
+
+logger = logging.getLogger("main.ActionTag")
+logger.addHandler(logging.NullHandler())
 
 
 class ActionTag:
@@ -27,7 +32,7 @@ class ActionTag:
             raise NotImplementedError()
 
     async def run(self, page):
-        print("wait " + self.selector, "for", self.options["timeout"])
+        logger.debug("wait %s for %s", self.selector, self.options["timeout"])
         try:
             await page.waitForSelector(self.selector, self.options)  # timeout
             if self.action != "wait":

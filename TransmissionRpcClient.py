@@ -29,7 +29,6 @@ class TransmissionRpcStatus(TorrentStatus):
         self.size = self._torrent.totalSize
         self.free_space = self._torrent_client.free_space(
             self._torrent.downloadDir)
-        print("free_space =", self.free_space)
 
     def refresh(self):
         self._torrent.refresh()
@@ -127,16 +126,3 @@ class TransmissionRpcClient(TorrentClient):
     #         "free_space":
     #         self.session.free_space(torrent.downloadDir),
     #     }
-
-
-if __name__ == "__main__":
-    rpc = TransmissionRpcClient(
-        "https://torrent.tathar.net/transmission/rpc",
-        443,
-        "tathar",
-        "c6d4c2ace50e654e0b0a0f7402c4f8c7",
-    )
-
-    rpc.connect()
-
-    print(rpc.get_torrent_status(194))

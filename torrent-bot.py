@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+import os
 import asyncio
+import logging
 from pathlib import Path
 
 import aiohttp
@@ -9,17 +11,20 @@ from pyppeteer import launch
 
 import Config
 from Series import Series
+
 #from TorrentClient import TorrentStatus
 
 DOC = """
 torrent-bot
  
 Usage:
-  torrent-bot.py [--conf=file]
+  torrent-bot.py [--conf=file] [--logfile=file] [--loglevel=int] [--screenshot=<folder>]
  
 Options:
   -h --help         
-  --conf=<file>     fichier de configuration.[default: ./configuration/torrent-bot.conf]
+  --conf=<file>             fichier de configuration.[default: ./configuration/torrent-bot.conf]
+  --logfile=<file>          fichier de log.
+  --loglevel=<int>          1=Debug 2=info 3=warning 4=error 5=CRITICAL [default: 1]
 
 """
 
@@ -28,7 +33,7 @@ __doc__ = DOC
 VERSION = '0.1'
 
 
-def start_torrent(series, torrent_client):
+def start_all_torrents(series, torrent_client):
     status = torrent_client.get_torrents_status(None)
     for stats in status:
         if stats["pause"] and stats["progress"] != 1:
@@ -40,8 +45,8 @@ def start_torrent(series, torrent_client):
                         break
 
                 if result:
-                    print(serie.search_name)
                     if stats["size"] < stats["free_space"] - 100000000:
+                        logger.info("start torrent %s", stats["name"])
                         torrent_client.start_torrent(stats["torrent_id"])
 
 
@@ -58,7 +63,7 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
             async for url in serie.search(page):
                 if await serie.get_torrent_url(url, page):
                     if await serie.download_torrent(aio_session):
-                        print("download torrent ok")
+                        logger.info("download torrent ok")
                         torrent_id = torrent_client.add_torrent(
                             serie.torrent_file, True, str(serie.path))
 
@@ -66,7 +71,7 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                         torrent = torrent_client.get_torrent_status(torrent_id)
                         if torrent.size <= torrent.free_space - 100000000:
                             torrent.start()
-                            print("start", torrent.name)
+                            logger.info("start %s", torrent.name)
                         serie.episode += 1
                         next_episode = True
                         break
@@ -80,7 +85,7 @@ def create_task(global_conf, sites, browser_context, aio_session,
                 torrent_client):
     # series = list()
     for filename in Path(global_conf["root_config"]).rglob("*.trbot"):
-        # print(filename)
+        # logger.debug(filename)
         serie_config = Config.SerieConfig(filename)
         serie_config["site"] = list()
         for serie_config_site in serie_config.site:
@@ -97,7 +102,7 @@ def create_task(global_conf, sites, browser_context, aio_session,
             if len(file_path) > num_part and part == file_path[num_part]:
                 num_part += 1
             else:
-                print("num_part = ", num_part)
+                logger.debug("num_part = %i", num_part)
                 break
 
         serie_config["path"] = str(
@@ -124,8 +129,8 @@ async def main():
     # # finally:
     # #     await browser.close()
     #///////// OLD ///////////
-    arg = docopt(__doc__, version=VERSION)
-    global_conf = Config.GlobalConfig(arg["--conf"])
+
+    global_conf = Config.GlobalConfig(args["--conf"])
 
     if global_conf["torrrent_client"]["api"] == "transmission-rpc":
         from TransmissionRpcClient import TransmissionRpcClient as TorrentClient
@@ -147,6 +152,7 @@ async def main():
         sites.append(site_config)
 
     #user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36"
+
     chrome_args = ["-size=1920,1080", "--no-sandbox"]
     browser = await launch(args=chrome_args, headless=True)
     # browser = await launch(args=chrome_args, headless=False)
@@ -168,10 +174,32 @@ async def main():
     # finally:
     #     await browser.close()
 
-    # start_torrent([
+    # start_all_torrents([
     #     series[0],
     # ], torrent_client)
 
 
 if __name__ == "__main__":
+
+    args = docopt(__doc__, version=VERSION)
+    logger = logging.getLogger("main")
+    logger.setLevel(int(args["--loglevel"]) * 10)
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+
+    if args["--logfile"] is not None:
+        path = Path(args["--logfile"]).parent
+        if not path.exists():
+            path.mkdir()
+        fh = logging.FileHandler(filename=args["--logfile"], mode='w')
+        fh.setLevel(int(args["--loglevel"]) * 10)
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    else:
+        sh = logging.StreamHandler()
+        sh.setLevel(int(args["--loglevel"]) * 10)
+        sh.setFormatter(formatter)
+        logger.addHandler(sh)
+
+    logger.debug('Start')
     asyncio.run(main())
+    logger.debug('end')
