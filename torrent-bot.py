@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import os
 import asyncio
 import logging
 from pathlib import Path
@@ -24,7 +23,7 @@ Options:
   -h --help         
   --conf=<file>             fichier de configuration.[default: ./configuration/torrent-bot.conf]
   --logfile=<file>          fichier de log.
-  --loglevel=<int>          1=Debug 2=info 3=warning 4=error 5=CRITICAL [default: 1]
+  --loglevel=<int>          1=Debug 2=info 3=warning 4=error 5=CRITICAL. [default: 1]
 
 """
 
@@ -35,19 +34,18 @@ VERSION = '0.1'
 
 def start_all_torrents(series, torrent_client):
     status = torrent_client.get_torrents_status(None)
+    if len(status) > 1:
+        free_space = status[0]["free_space"]
     for stats in status:
         if stats["pause"] and stats["progress"] != 1:
             for serie in series:
-                result = True
                 for string in serie.search_name:
                     if string.lower() not in stats["name"].lower():
-                        result = False
+                        if stats["size"] < free_space - 100000000:
+                            logger.info("start torrent %s", stats["name"])
+                            torrent_client.start_torrent(stats["torrent_id"])
+                            free_space -= stats["size"]
                         break
-
-                if result:
-                    if stats["size"] < stats["free_space"] - 100000000:
-                        logger.info("start torrent %s", stats["name"])
-                        torrent_client.start_torrent(stats["torrent_id"])
 
 
 async def task(serie_config, browser_context, aio_session, torrent_client):

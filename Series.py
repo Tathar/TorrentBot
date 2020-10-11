@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 
-# --- pour test----
-
 import logging
 import re
-from logging import getLogger
-from os.path import dirname
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List
-# import asyncio
-# import aiohttp
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup as Soup
@@ -23,7 +17,7 @@ logger.addHandler(logging.NullHandler())
 
 # search if title is in search
 def as_one_ellement(search: List[str], title: str) -> bool:
-    logger.info("search and '%s' in '%s'", str(search), title)
+    logger.debug("search and '%s' in '%s'", str(search), title)
     if len(title) > 0:
         logger.debug(" in '%s'", title)
         for regex in search:
@@ -43,7 +37,7 @@ def as_one_ellement(search: List[str], title: str) -> bool:
 
 # search if all elements of search is in title
 def as_all_ellements(search: List[str], title: str) -> bool:
-    logger.info("search and '%s' in '%s'", str(search), title)
+    logger.debug("search and '%s' in '%s'", str(search), title)
     if len(title) > 0:
         logger.debug(" len '%s' > 0", title)
         for regex in search:
@@ -272,6 +266,8 @@ class Series:
             soup = Soup(content, features="lxml")
             ahref = soup.find_all("a", href=True)
             logger.debug(ahref)
+            logger.info("search episode %s of %s", self.episode,
+                        " ".join(self.filters_and))
             for data in ahref:
                 if as_all_ellements(self.filters_and, data.get_text()):
                     if as_one_ellement(self.filters_or, data.get_text()):
