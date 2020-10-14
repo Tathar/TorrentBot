@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import logging
 from collections import UserDict
 from pathlib import Path
 
@@ -7,6 +8,9 @@ import validate
 from configobj import ConfigObj
 
 from ActionTag import ActionTag
+
+logger = logging.getLogger("main.Config")
+logger.addHandler(logging.NullHandler())
 
 
 class ConfiguartionError(Exception):
@@ -41,7 +45,6 @@ def dict_as_timeout(dic) -> int:
 def dict_as_error(dic) -> bool:
     if "error" in dic and (dic["error"] == "False" or dic["error"] == "false"):
         return False
-
     return True
 
 
@@ -62,7 +65,11 @@ class SiteConfig:
         self.__username = None
         self.__password = None
 
-        self.site["url"] = self._config_file["url"]
+        if "url" in self._config_file:
+            self.site["url"] = self._config_file["url"]
+        else:
+            self.site["url"] = None
+
         self.site["search_field_selector"] = ActionTag(
             self._config_file["search_field_selector"],
             timeout=DEFAULT_TIMEOUT)
@@ -78,8 +85,16 @@ class SiteConfig:
 
         self.site["going_login"] = self._create_action_tag(
             self._config_file["login"])
+
+        self.site["going_login"] = self.add_goto_if_need(
+            self.site["going_login"])
+
         self.site["going_search"] = self._create_action_tag(
             self._config_file["going_search"])
+
+        self.site["going_search"] = self.add_goto_if_need(
+            self.site["going_search"])
+
         self.site["going_download"] = self._create_action_tag(
             self._config_file["going_download"])
 
@@ -93,6 +108,9 @@ class SiteConfig:
         self.site["going_login"] = self._create_action_tag(
             self._config_file["login"])
 
+        self.site["going_login"] = self.add_goto_if_need(
+            self.site["going_login"])
+
     @property
     def password(self) -> str:
         return self.__password
@@ -102,6 +120,30 @@ class SiteConfig:
         self.__password = password
         self.site["going_login"] = self._create_action_tag(
             self._config_file["login"])
+
+        self.site["going_login"] = self.add_goto_if_need(
+            self.site["going_login"])
+
+    def add_goto_if_need(self, value: list) -> list:
+        if len(value) == 0:
+            # logger.debug("len(value) == 0")
+            if self.site["url"] is not None:
+                # logger.debug("URL == %s", self.site["url"])
+                value.append(ActionTag(self.site["url"], action="goto"))
+                # logger.debug("value = %s", value)
+            else:
+                raise ValueError(
+                    "define a [goto] section or a global url value")
+        elif len(value) > 0 and value[0].action != "goto":
+            # logger.debug("len(value) > 0 and action != goto")
+            if self.site["url"] is not None:
+                # logger.debug("URL == %s", self.site["url"])
+                value.insert(0, ActionTag(self.site["url"], action="goto"))
+                logger.debug("value insert = %s", value)
+            else:
+                raise ValueError(
+                    "define a [goto] section or a global url value")
+        return value
 
     def _create_action_tag(self, dic) -> list:
         ret = list()
@@ -134,6 +176,12 @@ class SiteConfig:
                 args["timeout"] = dict_as_timeout(value)
                 args["error"] = dict_as_error(value)
                 args["action"] = "wait"
+                ret.append(ActionTag(**args))
+            elif key[:4] == "goto":
+                args = {"selector": value["url"]}
+                args["timeout"] = dict_as_timeout(value)
+                args["error"] = dict_as_error(value)
+                args["action"] = "goto"
                 ret.append(ActionTag(**args))
         return ret
 

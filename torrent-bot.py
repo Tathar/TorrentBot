@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 import aiohttp
+from bs4.diagnose import profile
 from docopt import docopt
 from pyppeteer import launch
 
@@ -48,6 +49,37 @@ def start_all_torrents(series, torrent_client):
                         break
 
 
+# async def task(serie_config, browser_context, aio_session, torrent_client):
+
+#     serie = Series(**serie_config)
+#     page = await browser_context.newPage()
+#     await page.setViewport({"width": 1920, "height": 1080})
+#     #await page.setUserAgent(user_agent)
+#     next_episode = True
+#     if await serie.login(page):
+#         while next_episode:
+#             next_episode = False
+#             async for url in serie.search(page):
+#                 if await serie.get_torrent_url(url, page):
+#                     if await serie.download_torrent(aio_session):
+#                         logger.info("download torrent ok")
+#                         torrent_id = torrent_client.add_torrent(
+#                             serie.torrent_file, True, str(serie.path))
+
+#                         # await asyncio.sleep(10)
+#                         torrent = torrent_client.get_torrent_status(torrent_id)
+#                         if torrent.size <= torrent.free_space - 100000000:
+#                             torrent.start()
+#                             logger.info("start %s", torrent.name)
+#                         serie.episode += 1
+#                         next_episode = True
+#                         break
+
+#         if serie.episode != serie_config["episode"]:
+#             serie_config["episode"] = serie.episode
+#             serie_config.write()
+
+
 async def task(serie_config, browser_context, aio_session, torrent_client):
 
     serie = Series(**serie_config)
@@ -58,7 +90,24 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
     if await serie.login(page):
         while next_episode:
             next_episode = False
-            async for url in serie.search(page):
+            tasks = [
+                asyncio.create_task(coro)
+                async for coro in serie.make_search_task(page)
+            ]
+
+            while True:
+
+                if any(ltask.done() for ltask in tasks):
+                    logger.debug("all task is done")
+                    #si toute les taches sont terminées
+                    break
+
+                url = await serie.url.get()
+
+                if url is None:
+                    logger.debug("url is None")
+                    continue
+
                 if await serie.get_torrent_url(url, page):
                     if await serie.download_torrent(aio_session):
                         logger.info("download torrent ok")
@@ -72,6 +121,9 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                             logger.info("start %s", torrent.name)
                         serie.episode += 1
                         next_episode = True
+                        for ltask in tasks:
+                            logger.debug("Cancel Task")
+                            ltask.cancel()
                         break
 
         if serie.episode != serie_config["episode"]:

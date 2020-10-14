@@ -2,11 +2,13 @@
 
 import logging
 import re
+from asyncio import Event, Semaphore, queues
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup as Soup
+from bs4.diagnose import profile
 from pyppeteer import errors
 
 from ActionTag import ActionTag
@@ -17,7 +19,7 @@ logger.addHandler(logging.NullHandler())
 
 # search if title is in search
 def as_one_ellement(search: List[str], title: str) -> bool:
-    logger.debug("search and '%s' in '%s'", str(search), title)
+    logger.debug("search or '%s' in '%s'", str(search), title)
     if len(title) > 0:
         logger.debug(" in '%s'", title)
         for regex in search:
@@ -111,6 +113,11 @@ class Series:
             index + str(self._episode) for index in self.index_episode
         ]
 
+        self.filters_or.extend(
+            [index + "0" + str(self._episode) for index in self.index_episode])
+
+        logger.debug("filter_or = '%s'", self.filters_or)
+
         # self.separator = separator
         if isinstance(separator, list):
             self.separator = separator
@@ -123,6 +130,10 @@ class Series:
         self.path = path
         self.torrent_page_url: List[str] = list()
         self.torrent_url = ""
+        self.url: queues.Queue = queues.Queue()
+        self._semaphore = Semaphore(10)
+        self._run = Event()
+        self._run.set()
         self.torrent_file = None
         self.url_cookies: Dict[str, str] = dict()
 
@@ -136,14 +147,19 @@ class Series:
                 xname += str(name) + sep
 
             names.append(xname)
+            names.append(xname[:-len(sep)])
 
         for name in names:
             for index in self.index_episode:
                 search = name + index + str(self.episode)
                 self._searchs.append(search)
+                search = name + index + "0" + str(self._episode)
+                self._searchs.append(search)
 
-            # search = name + str(self.episode)
-            # self._searchs.append(search)
+            search = name + str(self.episode)
+            self._searchs.append(search)
+            search = name + "0" + str(self._episode)
+            self._searchs.append(search)
 
     @property
     def episode(self):
@@ -172,6 +188,11 @@ class Series:
             index + str(self._episode) for index in self.index_episode
         ]
 
+        self.filters_or.extend(
+            [index + "0" + str(self._episode) for index in self.index_episode])
+
+        logger.debug("filter_or = '%s'", self.filters_or)
+
         self._searchs.clear()
         names = list()
         for sep in self.separator:
@@ -180,13 +201,18 @@ class Series:
                 xname += str(name) + sep
 
             names.append(xname)
+            names.append(xname[:-len(sep)])
 
         for name in names:
             for index in self.index_episode:
                 search = name + index + str(self._episode)
                 self._searchs.append(search)
+                search = name + index + "0" + str(self._episode)
+                self._searchs.append(search)
 
             search = name + str(self._episode)
+            self._searchs.append(search)
+            search = name + "0" + str(self._episode)
             self._searchs.append(search)
 
     async def _screenshot(self, page, name=""):
@@ -221,9 +247,10 @@ class Series:
     async def login(self, page):
         """ return True if OK, False is not OK """
         logger.debug(self.site)
-        logger.debug("in login goto %s", self.site[0]["url"])
+        logger.debug("in login goto %s",
+                     self.site[0]["going_login"][0].selector)
         try:
-            await page.goto(self.site[0]["url"], {"timeout": 30000})
+            #await page.goto(self.site[0]["url"], {"timeout": 30000})
             await self._going_to(page, self.site[0]["going_login"])
         except errors.TimeoutError:
             return False
@@ -235,7 +262,7 @@ class Series:
 
         logger.debug("in search goto %s", self.site[0]["url"])
 
-        self.site[0]["url"] = page.url
+        self.site[0]["last_url"] = page.url
 
         search_tag = list()
         for data in self._searchs:
@@ -282,6 +309,77 @@ class Series:
 
         # self.torrent_page_url.reverse()  # on retourn la liste pour pouvoir facilement retiré les element dans l'ordre (pop)
         # return True
+
+    async def make_search_task(self, page) -> AsyncGenerator[str, None]:
+        """créé les tache de recherche"""
+
+        logger.debug("in make_search_task goto %s", self.site[0]["url"])
+
+        self.site[0]["last_url"] = page.url
+
+        search_tag = list()
+        for data in self._searchs:
+            search_tag.append(
+                ActionTag(self.site[0]["search_field_selector"].selector,
+                          data))
+
+        for search in search_tag:
+
+            yield self.search_task(page, search)
+
+    async def search_task(self, page, search):
+        """taches de recherche"""
+        async with self._semaphore:
+            logger.debug("in search_task search '%s'", search.data)
+            content = None
+            try:
+                page = await page.browser.newPage()
+                await page.setViewport({"width": 1920, "height": 1080})
+                #await page.goto(self.site[0]["url"], {"timeout": 30000})
+                await self._going_to(page, self.site[0]["going_search"])
+                logger.debug(search.data)
+                await search.run(page)
+                await self._screenshot(page)
+                await self.site[0]["search_button_selector"].run(page)
+                # sleep(10)
+                if self.site[0]["search_response_selector"] is not None:
+                    await self.site[0]["search_response_selector"].run(page)
+                content = await page.content()  # return HTML document
+                # print(content)
+
+            except errors.TimeoutError:
+                logger.debug("pyppeteer TimeOut")
+                await self._screenshot(page, "_timeout")
+                await page.close()
+                await self.url.put(None)
+                return
+
+            except errors.NetworkError:
+                logger.debug("pyppeteer NetworkError")
+                await self.url.put(None)
+                return
+            # except:
+            #     await self._screenshot(page, "_except")
+            #     await self.url.put(None)
+            #     logger.debug("raise error '%s'", search.data)
+            #     await page.close()
+            #     return
+
+            # print(content)
+            soup = Soup(content, features="lxml")
+            ahref = soup.find_all("a", href=True)
+            logger.debug(ahref)
+            logger.info("search episode %s of %s", self.episode,
+                        " ".join(self.filters_and))
+            for data in ahref:
+                if as_all_ellements(self.filters_and, data.get_text()):
+                    if as_one_ellement(self.filters_or, data.get_text()):
+                        #self.torrent_page_url.append(full_url(page, data["href"]))
+                        await self.url.put(full_url(page, data["href"]))
+
+            await page.close()
+            await self.url.put(None)
+            return
 
     async def get_torrent_url(self, torrent_page_url, page):
         """ return True if OK, False is not OK """
