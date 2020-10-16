@@ -221,9 +221,16 @@ class GlobalConfig():
 class SerieConfig(UserDict):
     def __init__(self, path):
         super().__init__(self)
-        config_file = Path(path)
-        if config_file.exists():
-            self._param = ConfigObj(str(config_file))
+        self._config_file = Path(path)
+        self.read()
+
+    def write(self):
+        self._param["episode"] = self.data["episode"]
+        self._param.write()
+
+    def read(self):
+        if self._config_file.exists():
+            self._param = ConfigObj(str(self._config_file))
         else:
             raise FileNotFoundError()
 
@@ -264,36 +271,51 @@ class SerieConfig(UserDict):
             raise ConfiguartionError("index_episode")
 
         #if path is not configured
-        if "path" not in self._param.keys(
-        ) or self._param["path"] == "None" or self._param["path"] == "none":
-            self._param["path"] = config_file.parent
+        if "path" in self._param.keys(
+        ) and self._param["path"] != "None" and self._param["path"] != "none":
+            self.data["path"] = self._param["path"]
 
         #self.data["site"] = self._param["site"]
         self.data["search_name"] = self._param["search_name"]
         self.data["episode"] = self._param["episode"]
         self.data["index_episode"] = self._param["index_episode"]
         self.data["separator"] = self._param["separator"]
-        self.data["path"] = self._param["path"]
 
-    def write(self):
-        self._param["episode"] = self.data["episode"]
-        self._param.write()
+    def diff_path(self, global_conf):
+
+        if "path" not in self.data:
+
+            relative = self._config_file.resolve().parent.relative_to(
+                global_conf["root_config"])
+
+            self.data["path"] = str(
+                Path(global_conf["root_download"]).joinpath(relative))
 
 
 if __name__ == "__main__":
-    config = SiteConfig("./sites.d/ygg.conf")
+
+    logger = logging.getLogger("Config")
+    logger.setLevel(10)
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+    sh = logging.StreamHandler()
+    sh.setLevel(10)
+    sh.setFormatter(formatter)
+    logger.addHandler(sh)
+
+    config = SiteConfig("./configuration/sites.d/ygg.conf")
     print(config.name)
     config.username = "tathar"
     config.password = "mot de passe"
     print(config.site)
 
-    glob_config = GlobalConfig("./torrent-bot.conf")
+    glob_config = GlobalConfig("./configuration/torrent-bot.conf")
     print(glob_config["site"]["ygg"]["password"])
 
-    serie_config = SerieConfig("./series.trbot")
+    serie_config = SerieConfig("./transmission/test/munou nana.trbot")
     print(serie_config.site)
     print(serie_config["search_name"])
     print(serie_config["episode"])
+    serie_config.diff_path(glob_config)
     print(serie_config["path"])
 
     # serie_config["episode"] += 1

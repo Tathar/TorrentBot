@@ -8,7 +8,6 @@ from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup as Soup
-from bs4.diagnose import profile
 from pyppeteer import errors
 
 from ActionTag import ActionTag
@@ -41,7 +40,7 @@ def as_one_ellement(search: List[str], title: str) -> bool:
 def as_all_ellements(search: List[str], title: str) -> bool:
     logger.debug("search and '%s' in '%s'", str(search), title)
     if len(title) > 0:
-        logger.debug(" len '%s' > 0", title)
+        # logger.debug(" len '%s' > 0", title)
         for regex in search:
             p = re.compile(regex, re.IGNORECASE)
             result = p.search(title)
@@ -131,7 +130,7 @@ class Series:
         self.torrent_page_url: List[str] = list()
         self.torrent_url = ""
         self.url: queues.Queue = queues.Queue()
-        self._semaphore = Semaphore(10)
+        self._semaphore = Semaphore(32)
         self._run = Event()
         self._run.set()
         self.torrent_file = None
@@ -171,7 +170,7 @@ class Series:
 
         if isinstance(self._filters,
                       list):  # on filtre sur le nom, le filtre et l épisode
-            self.filters_and = self._filters
+            self.filters_and = self._filters.copy()
             self.filters_and.extend(self.search_name)
             # self.filters.append(str(self._episode))
         # elif isinstance(filters, str):
@@ -254,61 +253,14 @@ class Series:
             await self._going_to(page, self.site[0]["going_login"])
         except errors.TimeoutError:
             return False
+        except errors.NetworkError:
+            logger.error("pyppeteer NetworkError")
+            return False
+        except errors.PageError:
+            logger.error("pyppeteer PageError")
+            return False
 
         return True
-
-    async def search(self, page) -> AsyncGenerator[str, None]:
-        """effectue une ou plusieurs recherches sur le sites et ajoute toute les pages coresspondantes dans self.torrent_page_url"""
-
-        logger.debug("in search goto %s", self.site[0]["url"])
-
-        self.site[0]["last_url"] = page.url
-
-        search_tag = list()
-        for data in self._searchs:
-            search_tag.append(
-                ActionTag(self.site[0]["search_field_selector"].selector,
-                          data))
-
-        content = None
-        for search in search_tag:
-            # await page.goto(self.site[0]["url"], {"timeout": 30000})
-            try:
-                await self._going_to(page, self.site[0]["going_search"])
-                logger.debug(search.data)
-                await search.run(page)
-                await self._screenshot(page)
-                await self.site[0]["search_button_selector"].run(page)
-                # sleep(10)
-                if self.site[0]["search_response_selector"] is not None:
-                    await self.site[0]["search_response_selector"].run(page)
-                content = await page.content()  # return HTML document
-                # print(content)
-
-            except errors.TimeoutError:
-                await self._screenshot(page, "_timeout")
-                continue
-
-            # print(content)
-            soup = Soup(content, features="lxml")
-            ahref = soup.find_all("a", href=True)
-            logger.debug(ahref)
-            logger.info("search episode %s of %s", self.episode,
-                        " ".join(self.filters_and))
-            for data in ahref:
-                if as_all_ellements(self.filters_and, data.get_text()):
-                    if as_one_ellement(self.filters_or, data.get_text()):
-                        #self.torrent_page_url.append(full_url(page, data["href"]))
-                        yield full_url(page, data["href"])
-
-            # if len(self.torrent_page_url) >= 1:
-            #     return True
-
-        # if len(self.torrent_page_url) == 0:
-        #     return False
-
-        # self.torrent_page_url.reverse()  # on retourn la liste pour pouvoir facilement retiré les element dans l'ordre (pop)
-        # return True
 
     async def make_search_task(self, page) -> AsyncGenerator[str, None]:
         """créé les tache de recherche"""
@@ -349,13 +301,17 @@ class Series:
 
             except errors.TimeoutError:
                 logger.debug("pyppeteer TimeOut")
-                await self._screenshot(page, "_timeout")
-                await page.close()
+                # await page.close()
                 await self.url.put(None)
                 return
 
             except errors.NetworkError:
-                logger.debug("pyppeteer NetworkError")
+                logger.error("pyppeteer NetworkError")
+                await self.url.put(None)
+                return
+
+            except errors.PageError:
+                logger.error("pyppeteer PageError")
                 await self.url.put(None)
                 return
             # except:
@@ -383,7 +339,7 @@ class Series:
 
     async def get_torrent_url(self, torrent_page_url, page):
         """ return True if OK, False is not OK """
-        logger.debug("in get_next_torrent_url goto %s", torrent_page_url)
+        logger.debug("in get_torrent_url goto %s", torrent_page_url)
         await page.goto(torrent_page_url, {"timeout": 30000})
         await self._going_to(page, self.site[0]["going_download"])
         content = await page.content()  # return HTML document
@@ -412,7 +368,7 @@ class Series:
 
     async def download_torrent(self, aio_session):
         """return True if download success , False is not"""
-
+        logger.info("download %s", str(self.torrent_url))
         # with open("test.torrent", "wb") as file:
         #     r = requests.get(self.torrent_url, cookies=self.url_cookies,)
         #     file.write(r.html)
@@ -420,6 +376,10 @@ class Series:
                                    cookies=self.url_cookies) as resp:
             if resp.status == 200:
                 self.torrent_file = await resp.read()
+                logger.info("torrent %s episode %i downloaded",
+                            self.search_name, self._episode)
                 return True
 
+        logger.error("error at download torrent %s  episode %i ",
+                     self.search_name, self._episode)
         return False

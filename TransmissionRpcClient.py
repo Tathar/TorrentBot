@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 
+import logging
 from typing import List
 from copy import deepcopy
 from urllib.parse import urlparse
 from io import BytesIO
 from transmission_rpc import Client, Torrent
+from transmission_rpc.error import TransmissionError
 from TorrentClient import TorrentClient, TorrentStatus
+
+logger = logging.getLogger("main.TranmissionRpcClient")
+logger.addHandler(logging.NullHandler())
 
 
 class TransmissionRpcStatus(TorrentStatus):
@@ -27,8 +32,13 @@ class TransmissionRpcStatus(TorrentStatus):
         self.torrent_id = self._torrent.id
         self.name = self._torrent.name
         self.size = self._torrent.totalSize
-        self.free_space = self._torrent_client.free_space(
-            self._torrent.downloadDir)
+        try:
+            self.free_space = self._torrent_client.free_space(
+                self._torrent.downloadDir)
+        except TransmissionError:
+            logger.error("TransmissionError: downloadDir= %s",
+                         self._torrent.downloadDir)
+            raise
 
     def refresh(self):
         self._torrent.refresh()

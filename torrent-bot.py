@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 
 import aiohttp
-from bs4.diagnose import profile
 from docopt import docopt
 from pyppeteer import launch
 
@@ -23,7 +22,7 @@ Usage:
 Options:
   -h --help         
   --conf=<file>             fichier de configuration.[default: ./configuration/torrent-bot.conf]
-  --logfile=<file>          fichier de log.
+  --logfile=<file>          fichier de log.[default: ./logfile.log]
   --loglevel=<int>          1=Debug 2=info 3=warning 4=error 5=CRITICAL. [default: 1]
 
 """
@@ -82,7 +81,8 @@ def start_all_torrents(series, torrent_client):
 
 async def task(serie_config, browser_context, aio_session, torrent_client):
 
-    serie = Series(**serie_config)
+    config = serie_config
+    serie = Series(**config)
     page = await browser_context.newPage()
     await page.setViewport({"width": 1920, "height": 1080})
     #await page.setUserAgent(user_agent)
@@ -105,7 +105,7 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                 url = await serie.url.get()
 
                 if url is None:
-                    logger.debug("url is None")
+                    logger.debug("the task as not found a result")
                     continue
 
                 if await serie.get_torrent_url(url, page):
@@ -119,16 +119,20 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                         if torrent.size <= torrent.free_space - 100000000:
                             torrent.start()
                             logger.info("start %s", torrent.name)
-                        serie.episode += 1
-                        next_episode = True
+
                         for ltask in tasks:
                             logger.debug("Cancel Task")
                             ltask.cancel()
-                        break
 
-        if serie.episode != serie_config["episode"]:
-            serie_config["episode"] = serie.episode
-            serie_config.write()
+                        await asyncio.wait(tasks)  #wait cancelled task
+
+                        config.read()
+                        config["episode"] = serie.episode + 1
+                        config.write()
+                        serie = Series(**config)
+                        next_episode = True
+
+                        break
 
 
 def create_task(global_conf, sites, browser_context, aio_session,
@@ -143,21 +147,22 @@ def create_task(global_conf, sites, browser_context, aio_session,
                 if serie_config_site == site.name:
                     serie_config["site"].append(site.site)
 
-        root_config = Path(global_conf["root_config"]).parts
-        file_path = Path(serie_config["path"]).parts
+        # root_config = Path(global_conf["root_config"]).parts
+        # file_path = Path(serie_config["path"]).parts
 
-        # recherche de la racince commune entre root_config et file_path
-        num_part = 0
-        for part in root_config:
-            if len(file_path) > num_part and part == file_path[num_part]:
-                num_part += 1
-            else:
-                logger.debug("num_part = %i", num_part)
-                break
+        # # recherche de la racince commune entre root_config et file_path
+        # num_part = 0
+        # for part in root_config:
+        #     if len(file_path) > num_part and part == file_path[num_part]:
+        #         num_part += 1
+        #     else:
+        #         logger.debug("num_part = %i", num_part)
+        #         break
 
-        serie_config["path"] = str(
-            Path(global_conf["root_download"]).joinpath(*file_path[num_part:]))
+        # serie_config["path"] = str(
+        #     Path(global_conf["root_download"]).joinpath(*file_path[num_part:]))
 
+        serie_config.diff_path(global_conf)
         # series.append(Series(**serie_config))
         yield task(serie_config, browser_context, aio_session, torrent_client)
 
@@ -206,8 +211,8 @@ async def main():
     chrome_args = ["-size=1920,1080", "--no-sandbox"]
     browser = await launch(args=chrome_args, headless=True)
     # browser = await launch(args=chrome_args, headless=False)
-    # browser_context = await browser.createIncognitoBrowserContext()
-    browser_context = browser
+    browser_context = await browser.createIncognitoBrowserContext()
+    #browser_context = browser
     # await browser.setWindowSize({"width": 1200, "height": 800})
 
     aio_session = aiohttp.ClientSession()
