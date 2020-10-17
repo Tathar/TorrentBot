@@ -98,22 +98,23 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
             while True:
 
                 if all([ltask.done() for ltask in tasks]):
-                    logger.debug("%s - all task is done", serie.name)
+                    logger.debug("%s - in task: all task is done", serie.name)
                     #si toute les taches sont terminées
                     break
 
-                logger.debug("%s - get URL", serie.name)
+                logger.debug("%s - in task: get URL", serie.name)
                 url = await serie.url.get()
 
                 if url is None:
                     logger.debug(
-                        "%s - url = None: the task as not found a result",
+                        "%s - in task: url = None: the task as not found a result",
                         serie.name)
                 else:
-                    logger.debug("%s - get url = %s", serie.name, url)
+                    logger.debug("%s - in task: get url = %s", serie.name, url)
                     if await serie.get_torrent_url(url, page):
                         if await serie.download_torrent(aio_session):
-                            logger.info("%s - download torrent ok", serie.name)
+                            logger.info("%s - in task: download torrent ok",
+                                        serie.name)
                             torrent_id = torrent_client.add_torrent(
                                 serie.torrent_file, True, str(serie.path))
 
@@ -122,11 +123,12 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                                 torrent_id)
                             if torrent.size <= torrent.free_space - 100000000:
                                 torrent.start()
-                                logger.info("%s - start %s", serie.name,
-                                            torrent.name)
+                                logger.info("%s - in task: start %s",
+                                            serie.name, torrent.name)
 
                             for ltask in tasks:
-                                logger.debug("%s - Cancel Task", serie.name)
+                                logger.debug("%s - in task: Cancel Task",
+                                             serie.name)
                                 ltask.cancel()
 
                             await asyncio.wait(
@@ -140,6 +142,10 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                             next_episode = True
 
                             break
+    try:
+        await page.close()
+    except Exception as error:
+        logger.error("%s - in task: %s", serie.name, error)
 
 
 async def create_task(global_conf, sites, browser_context, aio_session,
@@ -262,6 +268,6 @@ if __name__ == "__main__":
         sh.setFormatter(formatter)
         logger.addHandler(sh)
 
-    logger.debug('Start')
+    logger.info('Start AsyncIO')
     asyncio.run(main())
-    logger.debug('end')
+    logger.info('end of log file')
