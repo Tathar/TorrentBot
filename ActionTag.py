@@ -69,6 +69,10 @@ class ActionTag:
                 logger.debug("pyppeteer TimeOut")
                 if self.error == True:
                     raise
+            except errors.ElementHandleError as error:
+                logger.error("%s", error)
+                if self.error == True:
+                    raise
 
     def __str__(self) -> str:
         return "ActionTag[" + str(self.action) + ", " + str(

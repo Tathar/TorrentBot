@@ -97,46 +97,53 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
 
             while True:
 
-                if any(ltask.done() for ltask in tasks):
-                    logger.debug("all task is done")
+                if all([ltask.done() for ltask in tasks]):
+                    logger.debug("%s - all task is done", serie.name)
                     #si toute les taches sont terminées
                     break
 
+                logger.debug("%s - get URL", serie.name)
                 url = await serie.url.get()
 
                 if url is None:
-                    logger.debug("the task as not found a result")
-                    continue
+                    logger.debug(
+                        "%s - url = None: the task as not found a result",
+                        serie.name)
+                else:
+                    logger.debug("%s - get url = %s", serie.name, url)
+                    if await serie.get_torrent_url(url, page):
+                        if await serie.download_torrent(aio_session):
+                            logger.info("%s - download torrent ok", serie.name)
+                            torrent_id = torrent_client.add_torrent(
+                                serie.torrent_file, True, str(serie.path))
 
-                if await serie.get_torrent_url(url, page):
-                    if await serie.download_torrent(aio_session):
-                        logger.info("download torrent ok")
-                        torrent_id = torrent_client.add_torrent(
-                            serie.torrent_file, True, str(serie.path))
+                            # await asyncio.sleep(10)
+                            torrent = torrent_client.get_torrent_status(
+                                torrent_id)
+                            if torrent.size <= torrent.free_space - 100000000:
+                                torrent.start()
+                                logger.info("%s - start %s", serie.name,
+                                            torrent.name)
 
-                        # await asyncio.sleep(10)
-                        torrent = torrent_client.get_torrent_status(torrent_id)
-                        if torrent.size <= torrent.free_space - 100000000:
-                            torrent.start()
-                            logger.info("start %s", torrent.name)
+                            for ltask in tasks:
+                                logger.debug("%s - Cancel Task", serie.name)
+                                ltask.cancel()
 
-                        for ltask in tasks:
-                            logger.debug("Cancel Task")
-                            ltask.cancel()
+                            await asyncio.wait(
+                                tasks, return_when=asyncio.ALL_COMPLETED
+                            )  #wait cancelled task
 
-                        await asyncio.wait(tasks)  #wait cancelled task
+                            config.read()
+                            config["episode"] = serie.episode + 1
+                            config.write()
+                            serie = Series(**config)
+                            next_episode = True
 
-                        config.read()
-                        config["episode"] = serie.episode + 1
-                        config.write()
-                        serie = Series(**config)
-                        next_episode = True
-
-                        break
+                            break
 
 
-def create_task(global_conf, sites, browser_context, aio_session,
-                torrent_client):
+async def create_task(global_conf, sites, browser_context, aio_session,
+                      torrent_client):
     # series = list()
     for filename in Path(global_conf["root_config"]).rglob("*.trbot"):
         # logger.debug(filename)
@@ -211,18 +218,18 @@ async def main():
     chrome_args = ["-size=1920,1080", "--no-sandbox"]
     browser = await launch(args=chrome_args, headless=True)
     # browser = await launch(args=chrome_args, headless=False)
-    browser_context = await browser.createIncognitoBrowserContext()
-    #browser_context = browser
+    #browser_context = await browser.createIncognitoBrowserContext()
+    browser_context = browser
     # await browser.setWindowSize({"width": 1200, "height": 800})
 
     aio_session = aiohttp.ClientSession()
 
     tasks = [
-        asyncio.create_task(coro) for coro in create_task(
+        asyncio.create_task(coro) async for coro in create_task(
             global_conf, sites, browser_context, aio_session, torrent_client)
     ]
     # await download_torrents(param, browser_context)
-    await asyncio.wait(tasks)
+    await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
 
     await aio_session.close()
     await browser.close()
