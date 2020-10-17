@@ -262,6 +262,12 @@ class Series:
             ret = await Dest.run(page)
         return ret
 
+    async def _close_page(self, page):
+        try:
+            await page.close()
+        except Exception as error:
+            logger.error('%s - in _close_page: %s', self.name, error)
+
     async def login(self, page):
         """ return True if OK, False is not OK """
         logger.debug("%s - in login goto %s", self.name,
@@ -323,29 +329,32 @@ class Series:
 
             except errors.TimeoutError as error:
                 logger.error("%s - in search_task : %s", self.name, error)
-                # await page.close()
+                await self._close_page(page)
                 await self.url.put(None)
                 return
 
             except errors.NetworkError as error:
                 logger.error("%s - n search_task : %s", self.name, error)
+                await self._close_page(page)
                 await self.url.put(None)
                 return
 
             except errors.PageError as error:
                 logger.error("%s - in search_task : %s ", self.name, error)
+                await self._close_page(page)
                 await self.url.put(None)
                 return
 
             except Exception as error:
                 logger.error("%s - in search_task : %s", self.name, error)
+                await self._close_page(page)
                 await self.url.put(None)
                 return
             # except:
             #     await self._screenshot(page, "_except")
             #     await self.url.put(None)
             #     logger.debug("raise error '%s'", search.data)
-            #     await page.close()
+            #     await self._close_page(page)
             #     return
 
             # print(content)
@@ -362,13 +371,10 @@ class Series:
                         url = full_url(page, data["href"])
                         logger.debug("%s - in search_task: send url = '%s'",
                                      self.name, url)
+                        await self._close_page(page)
                         await self.url.put(url)
-                        logger.debug(
-                            "%s - in search_task: continue ",
-                            self.name,
-                        )
 
-            #await page.close()
+            await self._close_page(page)
             await self.url.put(None)
             return
 
