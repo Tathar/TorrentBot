@@ -130,7 +130,7 @@ class Series:
         self.torrent_page_url: List[str] = list()
         self.torrent_url = ""
         self.url: queues.Queue = queues.Queue()
-        self._semaphore = Semaphore(32)
+        self._semaphore = Semaphore(4)
         self._run = Event()
         self._run.set()
         self.torrent_file = None
