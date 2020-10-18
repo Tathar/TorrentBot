@@ -4,7 +4,6 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-asyncio = "*"
 pathlib = "*"
 aiohttp = "*"
 docopt = "*"
@@ -14,6 +13,7 @@ typing = "*"
 bs4 = "*"
 transmission-rpc = "*"
 lxml = "*"
+asyncio = "*"
 
 [dev-packages]
 flake8 = "*"

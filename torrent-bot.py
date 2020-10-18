@@ -95,53 +95,78 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                 async for coro in serie.make_search_task(page)
             ]
 
-            while True:
+            while len(tasks) > 0:
 
-                if all([ltask.done() for ltask in tasks]):
-                    logger.debug("%s - in task: all task is done", serie.name)
-                    #si toute les taches sont terminées
-                    break
+                logger.debug("%s %i- in task: wait task", serie.name,
+                             serie.episode)
+                done, tasks = await asyncio.wait(
+                    tasks, return_when=asyncio.FIRST_COMPLETED)
 
-                logger.debug("%s - in task: get URL", serie.name)
-                url = await serie.url.get()
+                for this_task in done:
+                    try:
+                        urls = this_task.result()
+                    except asyncio.CancelledError as error:
+                        logger.debug("%s %i - in task: CancelledError : %s",
+                                     serie.name, serie.episode, error)
+                        continue
+                    except asyncio.InvalidStateError as error:
+                        logger.error("%s %i - in task: InvalidStateError : %s",
+                                     serie.name, serie.episode, error)
+                        continue
+                    except Exception as error:
+                        logger.error("%s %i - in task: Exception : %s",
+                                     serie.name, serie.episode, error)
+                        continue
 
-                if url is None:
-                    logger.debug(
-                        "%s - in task: url = None: the task as not found a result",
-                        serie.name)
-                else:
-                    logger.debug("%s - in task: get url = %s", serie.name, url)
-                    if await serie.get_torrent_url(url, page):
-                        if await serie.download_torrent(aio_session):
-                            logger.info("%s - in task: download torrent ok",
-                                        serie.name)
-                            torrent_id = torrent_client.add_torrent(
-                                serie.torrent_file, True, str(serie.path))
+                    if next_episode:
+                        continue
 
-                            # await asyncio.sleep(10)
-                            torrent = torrent_client.get_torrent_status(
-                                torrent_id)
-                            if torrent.size <= torrent.free_space - 100000000:
-                                torrent.start()
-                                logger.info("%s - in task: start %s",
-                                            serie.name, torrent.name)
+                    if not isinstance(urls, list):
+                        logger.debug("%s %i - in task: not found episode",
+                                     serie.name, serie.episode)
+                        continue
 
-                            for ltask in tasks:
-                                logger.debug("%s - in task: Cancel Task",
-                                             serie.name)
-                                ltask.cancel()
+                    for url in urls:
+                        logger.debug("%s %i - in task: url = %s", serie.name,
+                                     serie.episode, url)
+                        if await serie.get_torrent_url(url, page):
+                            if await serie.download_torrent(aio_session):
+                                logger.info(
+                                    "%s %i - in task: download torrent ok",
+                                    serie.name, serie.episode)
+                                torrent_id = torrent_client.add_torrent(
+                                    serie.torrent_file, True, str(serie.path))
 
-                            await asyncio.wait(
-                                tasks, return_when=asyncio.ALL_COMPLETED
-                            )  #wait cancelled task
+                                config.read()
+                                config["episode"] = serie.episode + 1
+                                config.write()
 
-                            config.read()
-                            config["episode"] = serie.episode + 1
-                            config.write()
-                            serie = Series(**config)
-                            next_episode = True
+                                # await asyncio.sleep(10)
+                                torrent = torrent_client.get_torrent_status(
+                                    torrent_id)
+                                if torrent.size <= torrent.free_space - 100000000:
+                                    torrent.start()
+                                    logger.info("%s %i- in task: start %s",
+                                                serie.name, serie.episode,
+                                                torrent.name)
 
-                            break
+                                for ltask in tasks:
+                                    logger.debug(
+                                        "%s %i - in task: Cancel pending Task",
+                                        serie.name, serie.episode)
+                                    ltask.cancel()
+
+                                next_episode = True
+                                break
+
+            if len(tasks) == 0:
+                logger.debug("%s %i - in task: all task is done", serie.name,
+                             serie.episode)
+                #si toute les taches sont terminées
+
+            if next_episode:
+                serie = Series(**config)
+
     try:
         await page.close()
     except Exception as error:
