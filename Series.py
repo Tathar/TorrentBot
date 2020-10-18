@@ -3,7 +3,6 @@
 import logging
 import re
 from asyncio import Event, Semaphore, queues
-from os.path import split
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
@@ -245,9 +244,12 @@ class Series:
 
             screenshot /= str("screenshot " + str(self.name) + " " +
                               str(self._count) + str(name) + ".png")
-            await page.screenshot({"path": str(screenshot)})
-            logger.debug('%s - in _screenshot: make screenshout n°%i',
-                         self.name, self._count)
+            try:
+                await page.screenshot({"path": str(screenshot)})
+                logger.debug('%s - in _screenshot: make screenshout n°%i',
+                             self.name, self._count)
+            except Exception as error:
+                logger.error('%s - in _screenshot: %s', self.name, error)
             self._count += 1
 
     async def _going_to(self, page, Dest):
@@ -282,6 +284,9 @@ class Series:
             logger.error("%s - in login: %s", self.name, error)
             return False
         except errors.PageError as error:
+            logger.error("%s - in login: %s", self.name, error)
+            return False
+        except Exception as error:
             logger.error("%s - in login: %s", self.name, error)
             return False
 
@@ -408,7 +413,12 @@ class Series:
             logger.debug("%s - in get_torrent_url: url = %s", self.name,
                          self.torrent_url)
 
-            chrome_cookies = await page.cookies()
+            try:
+                chrome_cookies = await page.cookies()
+            except Exception as error:
+                logger.debug("%s - in get_torrent_url: get cookies: %s",
+                             self.name, error)
+
             for cookie in chrome_cookies:
                 self.url_cookies[cookie["name"]] = cookie["value"]
 
@@ -431,7 +441,7 @@ class Series:
                 self.torrent_file = await resp.read()
                 logger.info(
                     "%s - in download_torrent: torrent %s episode %i downloaded",
-                    self.name, self.search_name, self._episode)
+                    self.name, self.name, self._episode)
                 return True
 
         logger.error(

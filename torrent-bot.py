@@ -235,7 +235,16 @@ async def main():
             global_conf, sites, browser_context, aio_session, torrent_client)
     ]
     # await download_torrents(param, browser_context)
-    await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+    done, pending = await asyncio.wait(tasks,
+                                       timeout=600,
+                                       return_when=asyncio.ALL_COMPLETED)
+
+    if len(pending) > 0:
+        logger.error('Main timout occurs')
+        for ptask in pending:
+            ptask.cancel()
+
+        await asyncio.wait(pending, timeout=10)
 
     await aio_session.close()
     await browser.close()
