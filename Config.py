@@ -3,6 +3,7 @@
 import logging
 from collections import UserDict
 from pathlib import Path
+import asyncio
 
 import validate
 from configobj import ConfigObj
@@ -62,6 +63,7 @@ class SiteConfig:
         self._config_file.validate(validator)
 
         self.name = self._config_file["name"]
+        self.site["name"] = self.name
         self.__username = None
         self.__password = None
 
@@ -97,6 +99,9 @@ class SiteConfig:
 
         self.site["going_download"] = self._create_action_tag(
             self._config_file["going_download"])
+
+        self.site["lock"] = asyncio.Lock()
+        self.site["logged"] = False
 
     @property
     def username(self) -> str:

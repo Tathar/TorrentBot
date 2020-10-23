@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
+import asyncio
 import logging
 import re
-from asyncio import Semaphore
+from os.path import exists
 from pathlib import Path
-from typing import AsyncGenerator, Dict, List
+from typing import AsyncGenerator, Dict, Generator, List
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup as Soup
@@ -24,7 +25,7 @@ def clean_str(var):
 
 def full_url(page, url: str) -> str:
     link = urlparse(url)
-    if link.scheme == "":  # si le lien est incomplet (manque le http://www.site.org)
+    if link.scheme == "":  # si le lien est incomplet (manque le http://www.sites.org)
         base_url = urlparse(page.url)
         return base_url.scheme + "://" + base_url.netloc + url
     else:  # si le lien contient le domaine
@@ -32,8 +33,8 @@ def full_url(page, url: str) -> str:
 
 
 class Series:
-    def __init__(self, site, search_name, filters, episode: int, index_episode,
-                 separator, path):
+    def __init__(self, sites, search_name, filters, episode: int,
+                 index_episode, separator, path):
         self._count = 0
         if isinstance(search_name, list):
             self.name = str()
@@ -42,14 +43,14 @@ class Series:
             self.name = self.name[1:]
         else:
             self.name = search_name
-        # self.site = site
-        if isinstance(site, list):
-            if len(site) == 0:
-                raise ValueError("Need a site")
-            self.site = site
-        elif isinstance(site, dict):
-            self.site = list()
-            self.site.append(site)
+        # self.sites = sites
+        if isinstance(sites, list):
+            if len(sites) == 0:
+                raise ValueError("Need a sites")
+            self.sites = sites
+        elif isinstance(sites, dict):
+            self.sites = list()
+            self.sites.append(sites)
         else:
             raise TypeError()
 
@@ -104,12 +105,14 @@ class Series:
         self.torrent_page_url: List[str] = list()
         self.torrent_url = ""
         #self.url: queues.Queue = queues.Queue(maxsize=1)
-        self._semaphore = Semaphore(32)
-        self.torrent_file = None
-        self.url_cookies: Dict[str, str] = dict()
+        self._semaphore = asyncio.Semaphore(32)
+        self.torrent_file: asyncio.Queue = asyncio.Queue()
+        self.url_cookies: Dict[str, Dict[str, str]] = dict()
 
         self.regex: List[str] = list()
         self._searchs = list()
+
+        self.canceled = False
 
         names = list()
         for sep in self.separator:
@@ -256,11 +259,15 @@ class Series:
 
     async def _going_to(self, page, Dest):
 
+        if self.canceled:
+            raise asyncio.CancelledError
         ret = None
         if isinstance(Dest, list):
             for dest in Dest:
                 await self._screenshot(page)
                 ret = await dest.run(page)
+                if self.canceled:
+                    raise asyncio.CancelledError
         elif isinstance(Dest, ActionTag):
             await self._screenshot(page)
             ret = await Dest.run(page)
@@ -273,51 +280,109 @@ class Series:
             logger.error('%s %i - in _close_page: %s', self.name,
                          self._episode, error)
 
-    async def login(self, page):
+    async def _make_task(self, page):
+        for site in self.sites:
+            if await self.login(site, page):
+                for coro in self.make_search_task(site, page):
+                    yield asyncio.create_task(coro)
+
+    async def get_torrent(self, page, aio_session):
+        tasks = [task async for task in self._make_task(page)]
+
+        while len(tasks) > 0:
+
+            logger.debug("%s %i - in get_torrent: Wait task", self.name,
+                         self.episode)
+
+            done, tasks = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED)
+
+            for this_task in done:
+                try:
+                    urls = this_task.result()
+                except asyncio.CancelledError as error:
+                    logger.debug("%s %i - in get_torrent: CancelledError : %s",
+                                 self.name, self.episode, error)
+                    continue
+                except asyncio.InvalidStateError as error:
+                    logger.error(
+                        "%s %i - in get_torrent: InvalidStateError : %s",
+                        self.name, self.episode, error)
+                    continue
+                except Exception as error:
+                    logger.error("%s %i - in get_torrent: Exception : %s",
+                                 self.name, self.episode, error)
+                    continue
+
+                if not isinstance(urls, list):
+                    logger.debug("%s %i - in get_torrent: not found episode",
+                                 self.name, self.episode)
+                    continue
+
+                for site, url in urls:
+                    logger.debug("%s %i - in get_torrent: url = %s", self.name,
+                                 self.episode, url)
+                    if await self.get_torrent_url(site, url, page):
+                        yield await self.download_torrent(site, aio_session)
+
+    def stop(self):
+        self.canceled = True
+
+    async def login(self, site, page):
         """ return True if OK, False is not OK """
-        logger.debug("%s %i - in login goto %s", self.name, self._episode,
-                     self.site[0]["going_login"][0].selector)
-        try:
-            #await page.goto(self.site[0]["url"], {"timeout": 30000})
-            await self._going_to(page, self.site[0]["going_login"])
-        except errors.TimeoutError as error:
-            logger.error("%s %i - in login: %s", self.name, self._episode,
-                         error)
-            return False
-        except errors.NetworkError as error:
-            logger.error("%s %i - in login: %s", self.name, self._episode,
-                         error)
-            return False
-        except errors.PageError as error:
-            logger.error("%s %i - in login: %s", self.name, self._episode,
-                         error)
-            return False
-        except Exception as error:
-            logger.error("%s %i - in login: %s", self.name, self._episode,
-                         error)
-            return False
+
+        logger.debug("%s %i - in login %s : befor wait logged = %s", self.name,
+                     self._episode, site["name"], site["logged"])
+        if not site["logged"]:
+            with await site["lock"]:
+                logger.debug("%s %i - in login %s : after wait logged = %s",
+                             self.name, self._episode, site["name"],
+                             site["logged"])
+
+                if not site["logged"]:
+                    logger.debug("%s %i - in login %s : goto %s", self.name,
+                                 self._episode, site["name"],
+                                 site["going_login"][0].selector)
+                    try:
+                        await self._going_to(page, site["going_login"])
+                    except errors.TimeoutError as error:
+                        logger.error("%s %i - in login %s : %s", self.name,
+                                     self._episode, site["name"], error)
+                        return False
+                    except errors.NetworkError as error:
+                        logger.error("%s %i - in login %s : %s", self.name,
+                                     self._episode, site["name"], error)
+                        return False
+                    except errors.PageError as error:
+                        logger.error("%s %i - in login %s : %s", self.name,
+                                     self._episode, site["name"], error)
+                        return False
+                    except Exception as error:
+                        logger.error("%s %i - in login %s : %s", self.name,
+                                     self._episode, site["name"], error)
+                        return False
+                    site["logged"] = True
 
         return True
 
-    async def make_search_task(self, page) -> AsyncGenerator[str, None]:
+    def make_search_task(self, site, page) -> Generator[str, None, None]:
         """créé les tache de recherche"""
 
         logger.debug("%s %i - in make_search_task: goto %s", self.name,
-                     self._episode, self.site[0]["url"])
+                     self._episode, site["url"])
 
-        self.site[0]["last_url"] = page.url
+        #site["last_url"] = page.url
 
         search_tag = list()
         for data in self._searchs:
             search_tag.append(
-                ActionTag(self.site[0]["search_field_selector"].selector,
-                          data))
+                ActionTag(site["search_field_selector"].selector, data))
 
         for search in search_tag:
 
-            yield self.search_task(page, search)
+            yield self.search_task(site, page, search)
 
-    async def search_task(self, page, search):
+    async def search_task(self, site, page, search):
         """taches de recherche"""
         async with self._semaphore:
 
@@ -326,19 +391,35 @@ class Series:
             content = None
             try:
                 page = await page.browser.newPage()
+                if self.canceled:
+                    raise asyncio.CancelledError
                 await page.setViewport({"width": 1920, "height": 1080})
-                #await page.goto(self.site[0]["url"], {"timeout": 30000})
-                await self._going_to(page, self.site[0]["going_search"])
+                if self.canceled:
+                    raise asyncio.CancelledError
+                await self._going_to(page, site["going_search"])
                 logger.debug("%s %i - in search_task: search.data = '%s'",
                              self.name, self._episode, search.data)
+                if self.canceled:
+                    raise asyncio.CancelledError
                 await search.run(page)
+                if self.canceled:
+                    raise asyncio.CancelledError
                 await self._screenshot(page)
-                await self.site[0]["search_button_selector"].run(page)
+                if self.canceled:
+                    raise asyncio.CancelledError
+                await site["search_button_selector"].run(page)
+                if self.canceled:
+                    raise asyncio.CancelledError
                 # sleep(10)
-                if self.site[0]["search_response_selector"] is not None:
-                    await self.site[0]["search_response_selector"].run(page)
+                if site["search_response_selector"] is not None:
+                    await site["search_response_selector"].run(page)
+                if self.canceled:
+                    raise asyncio.CancelledError
                 content = await page.content()  # return HTML document
                 # print(content)
+
+            except asyncio.CancelledError:
+                raise
 
             except errors.TimeoutError as error:
                 logger.error("%s %i - in search_task : TimeoutError : %s",
@@ -347,7 +428,7 @@ class Series:
                 # logger.debug("%s %i - in search_task: send = None", self.name,
                 #              self._episode)
                 #await self.url.put(None)
-                return
+                raise asyncio.CancelledError("TimeoutError : {}".format(error))
 
             except errors.NetworkError as error:
                 logger.error("%s %i - in search_task : NetworkError : %s",
@@ -356,7 +437,7 @@ class Series:
                 # logger.debug("%s %i - in search_task: send = None", self.name,
                 #              self._episode)
                 #await self.url.put(None)
-                return
+                raise asyncio.CancelledError("NetworkError : {}".format(error))
 
             except errors.PageError as error:
                 logger.error("%s %i - in search_task : PageError : %s",
@@ -365,7 +446,7 @@ class Series:
                 # logger.debug("%s %i - in search_task: send = None", self.name,
                 #              self._episode)
                 #await self.url.put(None)
-                return
+                raise asyncio.CancelledError("PageError : {}".format(error))
 
             except Exception as error:
                 logger.error("%s %i - in search_task : Exception : %s",
@@ -374,13 +455,13 @@ class Series:
                 # logger.debug("%s %i - in search_task: send = None", self.name,
                 #              self._episode)
                 #await self.url.put(None)
-                return
+                raise asyncio.CancelledError("Exception : {}".format(error))
             # except:
             #     await self._screenshot(page, "_except")
             #     await self.url.put(None)
             #     logger.debug("raise error '%s'", search.data)
             #     await self._close_page(page)
-            #     return
+            #     raise asyncio.CancelledError
 
             # print(content)
             soup = Soup(content, features="lxml")
@@ -400,7 +481,7 @@ class Series:
                             "%s %i - in search_task: append url = '%s'",
                             self.name, self._episode, url)
                         #await self.url.put(url)
-                        urls.append(url)
+                        urls.append((site, url))
 
             await self._close_page(page)
             # logger.debug("%s %i - in search_task: send = None", self.name,
@@ -408,13 +489,13 @@ class Series:
             #await self.url.put(None)
             return urls
 
-    async def get_torrent_url(self, torrent_page_url, page):
+    async def get_torrent_url(self, site, torrent_page_url, page):
         """ return True if OK, False is not OK """
         logger.debug("%s %i - in get_torrent_url: goto %s", self.name,
                      self._episode, torrent_page_url)
         try:
             await page.goto(torrent_page_url, {"timeout": 30000})
-            await self._going_to(page, self.site[0]["going_download"])
+            await self._going_to(page, site["going_download"])
             content = await page.content()  # return HTML document
         except Exception as error:
             logger.error("%s %i - in get_torrent_url: %s", self.name,
@@ -425,7 +506,7 @@ class Series:
                      self._episode, clean_str(str(content)))
         soup = Soup(content, features="lxml")
 
-        html = soup.select_one(self.site[0]["download_link_selector"])
+        html = soup.select_one(site["download_link_selector"])
 
         logger.debug("%s %i - in get_torrent_url: html = %s", self.name,
                      self._episode, str(html))
@@ -442,12 +523,16 @@ class Series:
             try:
                 chrome_cookies = await page.cookies()
             except Exception as error:
-                logger.debug("%s %i - in get_torrent_url: get cookies: %s",
+                logger.error("%s %i - in get_torrent_url: get cookies: %s",
                              self.name, self._episode, error)
                 return False
 
+            if site["name"] not in self.url_cookies:
+                self.url_cookies[site["name"]] = dict()
+
             for cookie in chrome_cookies:
-                self.url_cookies[cookie["name"]] = cookie["value"]
+                self.url_cookies[site["name"]][
+                    cookie["name"]] = cookie["value"]
 
             return True
         else:
@@ -455,7 +540,7 @@ class Series:
 
         return False
 
-    async def download_torrent(self, aio_session):
+    async def download_torrent(self, site, aio_session):
         """return True if download success , False is not"""
         logger.info("%s %i - in download_torrent: download %s", self.name,
                     self._episode, str(self.torrent_url))
@@ -463,17 +548,16 @@ class Series:
         # with open("test.torrent", "wb") as file:
         #     r = requests.get(self.torrent_url, cookies=self.url_cookies,)
         #     file.write(r.html)
-        async with aio_session.get(self.torrent_url,
-                                   cookies=self.url_cookies) as resp:
+        async with aio_session.get(
+            self.torrent_url, cookies=self.url_cookies[site["name"]]) as resp:
             if resp.status == 200:
-                self.torrent_file = await resp.read()
                 logger.info(
                     "%s %i- in download_torrent: torrent %s episode %i downloaded",
                     self.name, self._episode, self.name, self._episode)
-                return True
+                return await resp.read()
 
         logger.error(
             "%s %i - in download_torrent: error at download torrent %s  episode %i ",
             self.name, self._episode, self.search_name, self._episode)
 
-        return False
+        return None
