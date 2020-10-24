@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
+import asyncio
 import logging
 from collections import UserDict
 from pathlib import Path
-import asyncio
 
 import validate
 from configobj import ConfigObj
@@ -275,10 +275,18 @@ class SerieConfig(UserDict):
         ) or self._param["index_episode"] is None:
             raise ConfiguartionError("index_episode")
 
-        #if path is not configured
+        #if path is configured
         if "path" in self._param.keys(
         ) and self._param["path"] != "None" and self._param["path"] != "none":
-            self.data["path"] = self._param["path"]
+            self.data["path"] = Path(self._param["path"])
+
+        #if subfolder is configured
+        if "subfolder" in self._param.keys() and self._param[
+                "subfolder"] != "None" and self._param["subfolder"] != "none":
+            self._subfolder = Path(self._param["subfolder"] +
+                                   str(self._param["episode"]))
+        else:
+            self._subfolder = None
 
         #self.data["site"] = self._param["site"]
         self.data["search_name"] = self._param["search_name"]
@@ -293,8 +301,11 @@ class SerieConfig(UserDict):
             relative = self._config_file.resolve().parent.relative_to(
                 global_conf["root_config"])
 
-            self.data["path"] = str(
-                Path(global_conf["root_download"]).joinpath(relative))
+            self.data["path"] = Path(
+                global_conf["root_download"]).joinpath(relative)
+
+        if self._subfolder is not None:
+            self.data["path"] = self.data["path"] / self._subfolder
 
 
 if __name__ == "__main__":
@@ -317,10 +328,11 @@ if __name__ == "__main__":
     print(glob_config["site"]["ygg"]["password"])
 
     serie_config = SerieConfig("./transmission/test/munou nana.trbot")
+    serie_config.diff_path(glob_config)
+
     print(serie_config.site)
     print(serie_config["search_name"])
     print(serie_config["episode"])
-    serie_config.diff_path(glob_config)
     print(serie_config["path"])
 
     # serie_config["episode"] += 1
