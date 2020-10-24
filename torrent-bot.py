@@ -85,6 +85,7 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
                              serie.name, serie.episode)
 
                 serie.stop()
+                config.read()
                 serie = Series(**config)
 
     try:
