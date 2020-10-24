@@ -110,7 +110,8 @@ async def create_task(global_conf, sites, browser_context, aio_session,
 
 async def main():
 
-    global_conf = Config.GlobalConfig(args["--conf"])
+    global_conf = Config.GlobalConfig()
+    global_conf.init(args["--conf"])
 
     if global_conf["torrrent_client"]["api"] == "transmission-rpc":
         from TransmissionRpcClient import TransmissionRpcClient as TorrentClient
