@@ -104,7 +104,6 @@ async def create_task(global_conf, sites, browser_context, aio_session,
                 if serie_config_site == site.name:
                     serie_config["sites"].append(site.site)
 
-        serie_config.diff_path(global_conf)
         yield task(serie_config, browser_context, aio_session, torrent_client)
 
 
