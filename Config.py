@@ -308,8 +308,11 @@ class SerieConfig(UserDict):
         #if subfolder is configured
         if "subfolder" in self._param.keys() and self._param[
                 "subfolder"] != "None" and self._param["subfolder"] != "none":
-            subfolder = Path(self._param["subfolder"] +
-                             str(self._param["episode"]))
+            ep = str(self._param["episode"])
+            if len(ep) == 1:
+                ep = "0" + ep
+
+            subfolder = Path(self._param["subfolder"] + ep)
             self.data["path"] = self.data["path"] / subfolder
 
         #self.data["site"] = self._param["site"]
