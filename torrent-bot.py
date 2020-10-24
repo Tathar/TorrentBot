@@ -63,6 +63,10 @@ async def task(serie_config, browser_context, aio_session, torrent_client):
             if torrent_file is not None:
                 logger.info("%s %i - in task: download torrent ok", serie.name,
                             serie.episode)
+
+                if not serie.path.exists():
+                    serie.path.mkdir(mode=0o777)
+
                 torrent_id = torrent_client.add_torrent(
                     torrent_file, True, str(serie.path))
 
