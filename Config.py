@@ -191,33 +191,49 @@ class SiteConfig:
         return ret
 
 
-class GlobalConfig():
-    def __init__(self, path):
-        config_file = Path(path)
-        if config_file.exists():
-            self._param = ConfigObj(str(config_file))
-        else:
-            raise FileNotFoundError()
+class GlobalConfig(object):
+    _instances = None
+    _init = False
 
-        #if root_download is not configured
-        if "root_download" not in self._param.keys(
-        ) or self._param["root_download"] is None:
-            self._param["root_download"] = self._param["root_config"]
+    def __new__(cls, *args, **kwargs):
+        """
+            On s'assure que GlobalConfig est un singleton, c'est à dire qu'on ne peut
+            pas créer deux fois GlobalConfig.
+        """
+        if cls._instances is None:
+            cls._instances = super(GlobalConfig, cls).__new__(cls)
 
-        #if sites_config is not configured
-        if "sites_config" not in self._param.keys(
-        ) or self._param["sites_config"] is None:
-            self._param["sites_config"] = "./sites.d/"
+        return cls._instances
 
-        #if torrrent_client is not configured
-        if "torrrent_client" not in self._param.keys(
-        ) or self._param["torrrent_client"] is None:
-            raise ConfiguartionError("torrrent_client")
+    def init(self, path):
+        if not GlobalConfig._init:  #sigleton
+            config_file = Path(path)
+            if config_file.exists():
+                self._param = ConfigObj(str(config_file))
+            else:
+                raise FileNotFoundError(str(config_file))
 
-        #if api is not configured
-        if "api" not in self._param["torrrent_client"].keys(
-        ) or self._param["torrrent_client"]["api"] not in VALIDE_API:
-            raise ConfiguartionError("API")
+            #if root_download is not configured
+            if "root_download" not in self._param.keys(
+            ) or self._param["root_download"] is None:
+                self._param["root_download"] = self._param["root_config"]
+
+            #if sites_config is not configured
+            if "sites_config" not in self._param.keys(
+            ) or self._param["sites_config"] is None:
+                self._param["sites_config"] = "./sites.d/"
+
+            #if torrrent_client is not configured
+            if "torrrent_client" not in self._param.keys(
+            ) or self._param["torrrent_client"] is None:
+                raise ConfiguartionError("torrrent_client")
+
+            #if api is not configured
+            if "api" not in self._param["torrrent_client"].keys(
+            ) or self._param["torrrent_client"]["api"] not in VALIDE_API:
+                raise ConfiguartionError("API")
+
+            GlobalConfig._init = True
 
     def __getitem__(self, key):
         return self._param[key]
@@ -234,6 +250,9 @@ class SerieConfig(UserDict):
         self._param.write()
 
     def read(self):
+
+        global_conf = GlobalConfig()
+
         if self._config_file.exists():
             self._param = ConfigObj(str(self._config_file))
         else:
@@ -279,33 +298,25 @@ class SerieConfig(UserDict):
         if "path" in self._param.keys(
         ) and self._param["path"] != "None" and self._param["path"] != "none":
             self.data["path"] = Path(self._param["path"])
-
-        #if subfolder is configured
-        if "subfolder" in self._param.keys() and self._param[
-                "subfolder"] != "None" and self._param["subfolder"] != "none":
-            self._subfolder = Path(self._param["subfolder"] +
-                                   str(self._param["episode"]))
         else:
-            self._subfolder = None
-
-        #self.data["site"] = self._param["site"]
-        self.data["search_name"] = self._param["search_name"]
-        self.data["episode"] = self._param["episode"]
-        self.data["index_episode"] = self._param["index_episode"]
-        self.data["separator"] = self._param["separator"]
-
-    def diff_path(self, global_conf):
-
-        if "path" not in self.data:
-
             relative = self._config_file.resolve().parent.relative_to(
                 global_conf["root_config"])
 
             self.data["path"] = Path(
                 global_conf["root_download"]).joinpath(relative)
 
-        if self._subfolder is not None:
-            self.data["path"] = self.data["path"] / self._subfolder
+        #if subfolder is configured
+        if "subfolder" in self._param.keys() and self._param[
+                "subfolder"] != "None" and self._param["subfolder"] != "none":
+            subfolder = Path(self._param["subfolder"] +
+                             str(self._param["episode"]))
+            self.data["path"] = self.data["path"] / subfolder
+
+        #self.data["site"] = self._param["site"]
+        self.data["search_name"] = self._param["search_name"]
+        self.data["episode"] = self._param["episode"]
+        self.data["index_episode"] = self._param["index_episode"]
+        self.data["separator"] = self._param["separator"]
 
 
 if __name__ == "__main__":
@@ -324,16 +335,18 @@ if __name__ == "__main__":
     config.password = "mot de passe"
     print(config.site)
 
-    glob_config = GlobalConfig("./configuration/torrent-bot.conf")
-    print(glob_config["site"]["ygg"]["password"])
+    glob_config = GlobalConfig()
+    glob_config.init("./configuration/torrent-bot.conf")
+    glob_config = GlobalConfig()
+    print("global conf " + str(glob_config["site"]["ygg"]["password"]))
 
-    serie_config = SerieConfig("./transmission/test/munou nana.trbot")
-    serie_config.diff_path(glob_config)
+    serie_config = SerieConfig("./series/test/test_serie.trbot")
 
     print(serie_config.site)
     print(serie_config["search_name"])
     print(serie_config["episode"])
     print(serie_config["path"])
 
-    # serie_config["episode"] += 1
+    # serie_config["episode"]
+    #  += 1
     # serie_config.write()
