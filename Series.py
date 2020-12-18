@@ -105,7 +105,7 @@ class Series:
         self.torrent_page_url: List[str] = list()
         self.torrent_url = ""
         #self.url: queues.Queue = queues.Queue(maxsize=1)
-        self._semaphore = asyncio.Semaphore(32)
+        #self._semaphore = asyncio.Semaphore(32)
         self.torrent_file: asyncio.Queue = asyncio.Queue()
         self.url_cookies: Dict[str, Dict[str, str]] = dict()
 
@@ -384,7 +384,7 @@ class Series:
 
     async def search_task(self, site, page, search):
         """taches de recherche"""
-        async with self._semaphore:
+        async with site["semaphore"]:
 
             logger.debug("%s %i - in search_task: search '%s'", self.name,
                          self._episode, search.data)

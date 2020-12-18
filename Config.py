@@ -25,6 +25,7 @@ name = string()
 url = string()
 username = string()
 password = string()
+max_request = integer()
 
 search_field_selector = string()
 search_button_selector = string()
@@ -101,6 +102,8 @@ class SiteConfig:
             self._config_file["going_download"])
 
         self.site["lock"] = asyncio.Lock()
+        self.site["semaphore"] = asyncio.Semaphore(
+            self._config_file["max_request"])
         self.site["logged"] = False
 
     @property
